@@ -74,7 +74,6 @@
 // happens-before semantics required for the acquire / release semantics used
 // by the queue structure.
 
-use std::mem::PinMut;
 use std::marker::Unpin;
 use std::fmt;
 use std::error::Error;
@@ -948,7 +947,7 @@ unsafe impl<T> Unpin for Receiver<T> {}
 impl<T> Stream for Receiver<T> {
     type Item = T;
 
-    fn poll_next(mut self: PinMut<Self>, cx: &mut task::Context) -> Poll<Option<T>> {
+    fn poll_next(&mut self, cx: &mut task::Context) -> Poll<Option<T>> {
         loop {
             // Try to read a message off of the message queue.
             let msg = match self.next_message() {
@@ -1015,8 +1014,8 @@ impl<T> UnboundedReceiver<T> {
 impl<T> Stream for UnboundedReceiver<T> {
     type Item = T;
 
-    fn poll_next(mut self: PinMut<Self>, cx: &mut task::Context) -> Poll<Option<T>> {
-        PinMut::new(&mut self.0).poll_next(cx)
+    fn poll_next(&mut self, cx: &mut task::Context) -> Poll<Option<T>> {
+        self.0.poll_next(cx)
     }
 }
 
