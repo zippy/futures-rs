@@ -1,5 +1,6 @@
 //! Asynchronous streams.
 
+use core::marker::Unpin;
 use core::mem::PinMut;
 
 use Poll;
@@ -15,7 +16,7 @@ use task;
 /// The trait is modeled after `Future`, but allows `poll_next` to be called
 /// even after a value has been produced, yielding `None` once the stream has
 /// been fully exhausted.
-pub trait Stream {
+pub trait Stream: Unpin {
     /// Values yielded by the stream.
     type Item;
 
@@ -45,64 +46,56 @@ pub trait Stream {
     /// calls to `poll_next` may result in a panic or other "bad behavior".  If this
     /// is difficult to guard against then the `fuse` adapter can be used to
     /// ensure that `poll_next` always returns `Ready(None)` in subsequent calls.
-    fn poll_next(self: PinMut<Self>, cx: &mut task::Context) -> Poll<Option<Self::Item>>;
-
-    /// A convenience for calling `Stream::poll_next` on `Unpin` stream types.
-    fn poll_next_unpin(&mut self, cx: &mut task::Context) -> Poll<Option<Self::Item>>
-        where Self: Unpin
-    {
-        PinMut::new(self).poll_next(cx)
-    }
+    fn poll_next(&mut self, cx: &mut task::Context) -> Poll<Option<Self::Item>>;
 }
 
 impl<'a, S: ?Sized + Stream + Unpin> Stream for &'a mut S {
     type Item = S::Item;
 
-    fn poll_next(mut self: PinMut<Self>, cx: &mut task::Context) -> Poll<Option<Self::Item>> {
-        S::poll_next(PinMut::new(&mut **self), cx)
+    fn poll_next(&mut self, cx: &mut task::Context) -> Poll<Option<Self::Item>> {
+        (**self).poll_next(cx)
     }
 }
 
 impl<'a, S: ?Sized + Stream> Stream for PinMut<'a, S> {
     type Item = S::Item;
 
-    fn poll_next(mut self: PinMut<Self>, cx: &mut task::Context) -> Poll<Option<Self::Item>> {
-        S::poll_next((*self).reborrow(), cx)
+    fn poll_next(&mut self, cx: &mut task::Context) -> Poll<Option<Self::Item>> {
+        (**self).poll_next(cx)
     }
 }
 
 if_std! {
     use std::boxed::{Box, PinBox};
-    use std::marker::Unpin;
 
     impl<S: ?Sized + Stream> Stream for Box<S> {
         type Item = S::Item;
 
-        fn poll_next(mut self: PinMut<Self>, cx: &mut task::Context) -> Poll<Option<Self::Item>> {
-            unsafe { pinned_deref!(self).poll_next(cx) }
+        fn poll_next(&mut self, cx: &mut task::Context) -> Poll<Option<Self::Item>> {
+            (**self).poll_next(cx)
         }
     }
 
     impl<S: ?Sized + Stream> Stream for PinBox<S> {
         type Item = S::Item;
 
-        fn poll_next(mut self: PinMut<Self>, cx: &mut task::Context) -> Poll<Option<Self::Item>> {
-            self.as_pin_mut().poll_next(cx)
+        fn poll_next(&mut self, cx: &mut task::Context) -> Poll<Option<Self::Item>> {
+            (**self).poll_next(cx)
         }
     }
 
     impl<S: Stream> Stream for ::std::panic::AssertUnwindSafe<S> {
         type Item = S::Item;
 
-        fn poll_next(mut self: PinMut<Self>, cx: &mut task::Context) -> Poll<Option<S::Item>> {
-            unsafe { pinned_field!(self, 0).poll_next(cx) }
+        fn poll_next(&mut self, cx: &mut task::Context) -> Poll<Option<S::Item>> {
+            self.0.poll_next(cx)
         }
     }
 
     impl<T: Unpin> Stream for ::std::collections::VecDeque<T> {
         type Item = T;
 
-        fn poll_next(mut self: PinMut<Self>, _cx: &mut task::Context) -> Poll<Option<Self::Item>> {
+        fn poll_next(&mut self, _cx: &mut task::Context) -> Poll<Option<Self::Item>> {
             Poll::Ready(self.pop_front())
         }
     }

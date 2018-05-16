@@ -2,7 +2,6 @@
 
 use {Future, Poll};
 use task;
-use core::mem::PinMut;
 
 /// A future representing a value which may or may not be present.
 ///
@@ -16,12 +15,10 @@ pub struct FutureOption<T> {
 impl<F: Future> Future for FutureOption<F> {
     type Output = Option<F::Output>;
 
-    fn poll(self: PinMut<Self>, cx: &mut task::Context) -> Poll<Self::Output> {
-        unsafe {
-            match &mut PinMut::get_mut(self).inner {
-                None => Poll::Ready(None),
-                Some(x) => PinMut::new_unchecked(x).poll(cx).map(Some),
-            }
+    fn poll(&mut self, cx: &mut task::Context) -> Poll<Self::Output> {
+        match &mut self.inner {
+            None => Poll::Ready(None),
+            Some(f) => f.poll(cx).map(Some),
         }
     }
 }

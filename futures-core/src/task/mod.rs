@@ -100,6 +100,8 @@ impl Drop for TaskObj {
 if_std! {
     use std::boxed::Box;
 
+    // TODO: this should be `PinFuture`
+    // see https://github.com/rust-lang/rust/issues/50792
     unsafe impl<F: Future<Output = ()> + Send + 'static> UnsafePoll for Box<F> {
         fn into_raw(self) -> *mut () {
             unsafe {
@@ -109,7 +111,7 @@ if_std! {
 
         unsafe fn poll(task: *mut (), cx: &mut Context) -> Poll<()> {
             let ptr: *mut F = mem::transmute(task);
-            let pin: PinMut<F> = PinMut::new_unchecked(&mut *ptr);
+            let mut pin: PinMut<F> = PinMut::new_unchecked(&mut *ptr);
             pin.poll(cx)
         }
 

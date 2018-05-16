@@ -1,7 +1,7 @@
 //! Futures.
 
-use core::mem::PinMut;
 use core::marker::Unpin;
+use core::mem::PinMut;
 
 use Poll;
 use task;
@@ -45,7 +45,7 @@ mod either;
 /// scheduling a number of callbacks. As with iterators, the combinators are
 /// zero-cost: they compile away. You can find the combinators in the
 /// [future-util](https://docs.rs/futures-util) crate.
-pub trait Future {
+pub trait Future: Unpin {
     /// The result of the future
     type Output;
 
@@ -110,56 +110,61 @@ pub trait Future {
     /// Callers who may call `poll` too many times may want to consider using
     /// the `fuse` adaptor which defines the behavior of `poll`, but comes with
     /// a little bit of extra cost.
-    fn poll(self: PinMut<Self>, cx: &mut task::Context) -> Poll<Self::Output>;
-
-    /// A convenience for calling `Future::poll` on `Unpin` future types.
-    fn poll_unpin(&mut self, cx: &mut task::Context) -> Poll<Self::Output>
-        where Self: Unpin
-    {
-        PinMut::new(self).poll(cx)
-    }
+    fn poll(&mut self, cx: &mut task::Context) -> Poll<Self::Output>;
 }
 
-impl<'a, F: ?Sized + Future + Unpin> Future for &'a mut F {
+/// A future that is only pollable in a "pinned" context.
+pub trait PinFuture where for<'a> PinMut<'a, Self>: Future {
+    /// The value produced by the future
+    type Output;
+}
+
+impl<F: Future> PinFuture for F {
+    type Output = <Self as Future>::Output;
+}
+
+impl<'a, F: ?Sized + Future> Future for &'a mut F {
     type Output = F::Output;
 
-    fn poll(mut self: PinMut<Self>, cx: &mut task::Context) -> Poll<Self::Output> {
-        F::poll(PinMut::new(&mut **self), cx)
+    fn poll(&mut self, cx: &mut task::Context) -> Poll<Self::Output> {
+        (**self).poll(cx)
     }
 }
 
 impl<'a, F: ?Sized + Future> Future for PinMut<'a, F> {
     type Output = F::Output;
 
-    fn poll(mut self: PinMut<Self>, cx: &mut task::Context) -> Poll<Self::Output> {
-        F::poll((*self).reborrow(), cx)
+    fn poll(&mut self, cx: &mut task::Context) -> Poll<Self::Output> {
+        (**self).poll(cx)
     }
 }
 
 if_std! {
-    use std::boxed::{Box, PinBox};
+    use std::boxed::Box;
 
     impl<'a, F: ?Sized + Future> Future for Box<F> {
         type Output = F::Output;
 
-        fn poll(mut self: PinMut<Self>, cx: &mut task::Context) -> Poll<Self::Output> {
-            unsafe { pinned_deref!(self).poll(cx) }
+        fn poll(&mut self, cx: &mut task::Context) -> Poll<Self::Output> {
+            (**self).poll(cx)
         }
     }
 
-    impl<'a, F: ?Sized + Future> Future for PinBox<F> {
+    /*
+    impl<F: ?Sized + PinFuture> Future for PinBox<F> {
         type Output = F::Output;
 
-        fn poll(mut self: PinMut<Self>, cx: &mut task::Context) -> Poll<Self::Output> {
+        fn poll(&mut self, cx: &mut task::Context) -> Poll<Self::Output> {
             self.as_pin_mut().poll(cx)
         }
     }
+     */
 
-    impl<'a, F: Future> Future for ::std::panic::AssertUnwindSafe<F> {
+    impl<F: Future> Future for ::std::panic::AssertUnwindSafe<F> {
         type Output = F::Output;
 
-        fn poll(mut self: PinMut<Self>, cx: &mut task::Context) -> Poll<Self::Output> {
-            unsafe { pinned_field!(self, 0).poll(cx) }
+        fn poll(&mut self, cx: &mut task::Context) -> Poll<Self::Output> {
+            self.0.poll(cx)
         }
     }
 }
@@ -178,7 +183,7 @@ pub trait TryFuture {
     /// This method is a stopgap for a compiler limitation that prevents us from
     /// directly inheriting from the `Future` trait; in the future it won't be
     /// needed.
-    fn try_poll(self: PinMut<Self>, cx: &mut task::Context) -> Poll<Result<Self::Item, Self::Error>>;
+    fn try_poll(&mut self, cx: &mut task::Context) -> Poll<Result<Self::Item, Self::Error>>;
 }
 
 impl<F, T, E> TryFuture for F
@@ -187,7 +192,7 @@ impl<F, T, E> TryFuture for F
     type Item = T;
     type Error = E;
 
-    fn try_poll(self: PinMut<Self>, cx: &mut task::Context) -> Poll<F::Output> {
+    fn try_poll(&mut self, cx: &mut task::Context) -> Poll<F::Output> {
         self.poll(cx)
     }
 }
@@ -197,12 +202,10 @@ impl<F, T, E> TryFuture for F
 #[must_use = "futures do nothing unless polled"]
 pub struct ReadyFuture<T>(Option<T>);
 
-unsafe impl<T> Unpin for ReadyFuture<T> {}
-
-impl<T> Future for ReadyFuture<T> {
+impl<T: Unpin> Future for ReadyFuture<T> {
     type Output = T;
 
-    fn poll(mut self: PinMut<Self>, _cx: &mut task::Context) -> Poll<T> {
+    fn poll(&mut self, _cx: &mut task::Context) -> Poll<T> {
         Poll::Ready(self.0.take().unwrap())
     }
 }
