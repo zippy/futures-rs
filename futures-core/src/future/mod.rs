@@ -45,7 +45,7 @@ mod either;
 /// scheduling a number of callbacks. As with iterators, the combinators are
 /// zero-cost: they compile away. You can find the combinators in the
 /// [future-util](https://docs.rs/futures-util) crate.
-pub trait Future: Unpin {
+pub trait Future {
     /// The result of the future
     type Output;
 
@@ -113,16 +113,6 @@ pub trait Future: Unpin {
     fn poll(&mut self, cx: &mut task::Context) -> Poll<Self::Output>;
 }
 
-/// A future that is only pollable in a "pinned" context.
-pub trait PinFuture where for<'a> PinMut<'a, Self>: Future {
-    /// The value produced by the future
-    type Output;
-}
-
-impl<F: Future> PinFuture for F {
-    type Output = <Self as Future>::Output;
-}
-
 impl<'a, F: ?Sized + Future> Future for &'a mut F {
     type Output = F::Output;
 
@@ -131,7 +121,7 @@ impl<'a, F: ?Sized + Future> Future for &'a mut F {
     }
 }
 
-impl<'a, F: ?Sized + Future> Future for PinMut<'a, F> {
+impl<'a, F: ?Sized + Future + Unpin> Future for PinMut<'a, F> {
     type Output = F::Output;
 
     fn poll(&mut self, cx: &mut task::Context) -> Poll<Self::Output> {
@@ -140,7 +130,7 @@ impl<'a, F: ?Sized + Future> Future for PinMut<'a, F> {
 }
 
 if_std! {
-    use std::boxed::Box;
+    use std::boxed::{Box, PinBox};
 
     impl<'a, F: ?Sized + Future> Future for Box<F> {
         type Output = F::Output;
@@ -150,15 +140,15 @@ if_std! {
         }
     }
 
-    /*
-    impl<F: ?Sized + PinFuture> Future for PinBox<F> {
-        type Output = F::Output;
+    impl<T, F: ?Sized> Future for PinBox<F>
+        where for<'a> PinMut<'a, F>: Future<Output = T>
+    {
+        type Output = T;
 
         fn poll(&mut self, cx: &mut task::Context) -> Poll<Self::Output> {
             self.as_pin_mut().poll(cx)
         }
     }
-     */
 
     impl<F: Future> Future for ::std::panic::AssertUnwindSafe<F> {
         type Output = F::Output;

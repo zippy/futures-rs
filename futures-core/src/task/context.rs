@@ -1,4 +1,5 @@
 use core::fmt;
+use core::mem::PinMut;
 
 use executor::Executor;
 use task::{TaskObj, Waker};
@@ -81,7 +82,10 @@ if_std! {
         ///
         /// To handle executor errors, use [executor()](self::Context::executor)
         /// instead.
-        pub fn spawn<F>(&mut self, f: F) where F: Future<Output = ()> + 'static + Send {
+        pub fn spawn<F>(&mut self, f: F)
+            where F: 'static + Send,
+                  for<'b> PinMut<'b, F>: Future<Output = ()>
+        {
             self.executor()
                 .spawn_obj(TaskObj::new(f)).unwrap()
         }

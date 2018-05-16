@@ -100,9 +100,9 @@ impl Drop for TaskObj {
 if_std! {
     use std::boxed::Box;
 
-    // TODO: this should be `PinFuture`
-    // see https://github.com/rust-lang/rust/issues/50792
-    unsafe impl<F: Future<Output = ()> + Send + 'static> UnsafePoll for Box<F> {
+    unsafe impl<F: Send + 'static> UnsafePoll for Box<F>
+        where for<'a> PinMut<'a, F>: Future<Output = ()>
+    {
         fn into_raw(self) -> *mut () {
             unsafe {
                 mem::transmute(self)
@@ -124,7 +124,9 @@ if_std! {
 
     impl TaskObj {
         /// Create a new `TaskObj` by boxing the given future.
-        pub fn new<F: Future<Output = ()> + Send + 'static>(f: F) -> TaskObj {
+        pub fn new<F: Send + 'static>(f: F) -> TaskObj
+            where for<'a> PinMut<'a, F>: Future<Output = ()>
+        {
             TaskObj::from_poll_task(Box::new(f))
         }
     }
