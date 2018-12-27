@@ -37,7 +37,7 @@ futures_01 = { version = "0.1.25", optional = true, package = "futures" }
 tokio-executor = { version = "0.1.2", optional = true }
 tokio-io = { version = "0.1.9", optional = true }
 # FIXME(taiki-e): When a new version of pin-utils is released, fix this line.
-pin-utils = { git = "https://github.com/rust-lang-nursery/pin-utils.git"}
+pin-utils = "0.1.0-alpha.4"
 
 [dev-dependencies]
 futures-preview = { path = "../futures", version = "0.3.0-alpha.10" }
